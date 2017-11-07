@@ -1,0 +1,18 @@
+[package]
+name = "length-server"
+version = "0.1.0"
+authors = ["Max Gortman <mgortman@microsoft.com>"]
+
+[dependencies]
+futures-await = { git = 'https://github.com/alexcrichton/futures-await' }
+tokio-io = "0.1"
+tokio-core= "0.1"
+native-tls = "0.1"
+tokio-tls = "0.1"
+bytes = "0.4"
+net2 = "0.2"
+num_cpus = "1"
+error-chain = "*"
+
+[profile.release]
+debug = true
