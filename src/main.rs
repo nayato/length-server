@@ -98,12 +98,6 @@ impl LengthProto {
                 e
             })
             .then(|_| Ok(()));
-        // let work = rx.forward(tx)
-        //     .map_err(|e| {
-        //         println!("err: {:?}", e);
-        //         e
-        //     })
-        //     .then(|_| Ok(()));
         start_handle.spawn(work);
     }
 }
