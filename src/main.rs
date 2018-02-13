@@ -1,6 +1,4 @@
-#![feature(proc_macro, conservative_impl_trait, generators, vec_resize_default, integer_atomics)]
-
-extern crate futures_await as futures;
+extern crate futures;
 extern crate tokio_io;
 extern crate tokio_core;
 extern crate bytes;
