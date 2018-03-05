@@ -23,13 +23,12 @@ use tokio_tls::TlsAcceptorExt;
 use bytes::{BufMut, BytesMut};
 
 mod error;
-use error::*;
 mod codec;
 use codec::LengthCodec;
 
 struct LengthProto {
     response_factor: f32,
-    tls_acceptor: TlsAcceptor
+    tls_acceptor: Option<TlsAcceptor>
 }
 
 fn main() {
@@ -40,19 +39,25 @@ fn main() {
     let acceptor = TlsAcceptor::builder(pkcs12).unwrap().build().unwrap();
 
     let workers = num_cpus::get();
-    let rep_1_1 = start_length_server("0.0.0.0:21000", workers, &acceptor, 1f32);
-    let rep_1_100 = start_length_server("0.0.0.0:21001", workers, &acceptor, 100f32);
-    let rep_100_1 = start_length_server("0.0.0.0:21002", workers, &acceptor, 0.01f32);
+    let acceptor = Some(acceptor);
+    let rep_tls_1_1 = start_length_server("0.0.0.0:21000", workers, &acceptor, 1f32);
+    let rep_tls_1_100 = start_length_server("0.0.0.0:21001", workers, &acceptor, 100f32);
+    let rep_tls_100_1 = start_length_server("0.0.0.0:21002", workers, &acceptor, 0.01f32);
+    let rep_1_1 = start_length_server("0.0.0.0:21080", workers, &None, 1f32);
+    let rep_1_100 = start_length_server("0.0.0.0:21081", workers, &None, 100f32);
+    let rep_100_1 = start_length_server("0.0.0.0:21082", workers, &None, 0.01f32);
 
     println!("started");
     
-
+    rep_tls_1_1.join().unwrap();
+    rep_tls_1_100.join().unwrap();
+    rep_tls_100_1.join().unwrap();
     rep_1_1.join().unwrap();
     rep_1_100.join().unwrap();
     rep_100_1.join().unwrap();
 }
 
-fn start_length_server(addr: &'static str, workers: usize, acceptor: &TlsAcceptor, response_factor: f32) -> std::thread::JoinHandle<()> {
+fn start_length_server(addr: &'static str, workers: usize, acceptor: &Option<TlsAcceptor>, response_factor: f32) -> std::thread::JoinHandle<()> {
     let acceptor = acceptor.clone();
     std::thread::spawn(move || start_server(addr.parse().unwrap(), workers, move |_| LengthProto { response_factor: 1f32, tls_acceptor: acceptor.clone() }))
 }
@@ -60,26 +65,32 @@ fn start_length_server(addr: &'static str, workers: usize, acceptor: &TlsAccepto
 impl LengthProto {
     pub fn bind<Io: AsyncRead + AsyncWrite + 'static>(self, handle: &Handle, io: Io) {
         let h = handle.clone();
-        let start = self.tls_acceptor.accept_async(io)
-            .and_then(move |tls| {
-                self.bind_length(&h, tls);
-                Ok(())
-            })
-            .map_err(|_| ());
-        handle.spawn(start);
+        if let Some(acc) = self.tls_acceptor {
+            let response_factor = self.response_factor;
+            let start = acc.accept_async(io)
+                .and_then(move |tls| {
+                    Self::bind_length(response_factor, &h, tls);
+                    Ok(())
+                })
+                .map_err(|_| ());
+            handle.spawn(start);
+        }
+        else {
+            Self::bind_length(self.response_factor, handle, io);
+        }
     }
     
-    fn bind_length<Io: AsyncRead + AsyncWrite + 'static>(self, handle: &Handle, io: Io) {
+    fn bind_length<Io: AsyncRead + AsyncWrite + 'static>(response_factor: f32, handle: &Handle, io: Io) {
         let framed = io.framed(LengthCodec::new());
         let handle = handle.clone();
         let start_handle = handle.clone();
         let (tx, rx) = framed.split();
         let transformed = rx.map(move |m| {
-            if self.response_factor == 1.0f32 {
+            if response_factor == 1.0f32 {
                 return m;
             }
             let len = m.len();
-            let mut fill_len = std::cmp::max(1, (len as f32 * self.response_factor) as usize);
+            let mut fill_len = std::cmp::max(1, (len as f32 * response_factor) as usize);
             let mut response = BytesMut::with_capacity(fill_len);
             while fill_len > len {
                 response.put_slice(m.as_ref());
